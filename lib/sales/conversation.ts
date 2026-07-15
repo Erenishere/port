@@ -30,6 +30,7 @@ const KNOWLEDGE_PATTERN = /^(?:what|which|who|show|tell|can|do|have).{0,120}\b(?
 const GREETING_PATTERN = /^(?:hi|hello|hey|salam|assalam(?:-?o-?alaikum)?|good (?:morning|afternoon|evening))[!. ]*$/i;
 const SUMMARY_PATTERN = /^(?:where were we|what have you noted|summari[sz]e (?:my|the) (?:project|requirements)|show (?:my|the) (?:project )?summary)[?.! ]*$/i;
 
+const UNKNOWN_BUDGET_PATTERN = /\b(?:no|none|not sure|unknown|no (?:fixed )?budget|not decided|flexible)\b/i;
 const featurePatterns: Array<[RegExp, string]> = [
   [/\b(?:inventory|invertory)|stock\b/i, "inventory management"],
   [/\bpurchas(?:e|ing)\b/i, "purchasing"],
@@ -207,9 +208,11 @@ function explicitBusinessGoal(text: string, projectType: ProjectType | null) {
 
 function parseBudget(text: string) {
   const range = text.match(/(?:\$|usd\s*)?(\d[\d,]*(?:\.\d+)?)\s*(?:-|–|to)\s*(?:\$|usd\s*)?(\d[\d,]*(?:\.\d+)?)/i);
-  const single = text.match(/(?:\$|usd\s*)(\d[\d,]*(?:\.\d+)?)/i);
+  const prefixedSingle = text.match(/(?:\$|usd\s*)(\d[\d,]*(?:\.\d+)?)/i);
+  const suffixedSingle = text.match(/(\d[\d,]*(?:\.\d+)?)\s*(?:dollars?|usd|\$)/i);
+  const plainSingle = text.match(/^\s*(\d[\d,]*(?:\.\d+)?)\s*\$?\s*$/i);
   const shorthand = text.match(/(?:\$|usd\s*)?(\d+(?:\.\d+)?)\s*k\b(?:\s*usd)?/i);
-  const numbers = range ?? single ?? shorthand;
+  const numbers = range ?? prefixedSingle ?? suffixedSingle ?? shorthand ?? plainSingle;
   if (!numbers) return null;
   const multiplier = shorthand && numbers === shorthand ? 1_000 : 1;
   const min = Number(numbers[1].replace(/,/g, "")) * multiplier;
@@ -280,7 +283,7 @@ function applyActiveAnswer(lead: LeadRecord, text: string) {
       lead.budgetCurrency = budget.currency;
       return true;
     }
-    if (/\b(?:not sure|unknown|no (?:fixed )?budget|not decided|flexible)\b/i.test(text)) {
+    if (UNKNOWN_BUDGET_PATTERN.test(text.trim())) {
       setScalar(lead, "budgetText", "Not specified");
       return true;
     }
@@ -593,7 +596,7 @@ export class SalesConversationManager {
       const activeBudgetAnswer =
         lead.activeQuestionField === "budgetText" &&
         (Boolean(parseBudget(userText)) ||
-          /\b(?:not sure|unknown|no (?:fixed )?budget|not decided|flexible)\b/i.test(userText));
+          UNKNOWN_BUDGET_PATTERN.test(userText.trim()));
       const pricing =
         PRICING_PATTERN.test(userText) && !activeBudgetAnswer && !activeQuoteReviewAnswer;
       const knowledgeQuestion = isKnowledgeQuestion(userText);
