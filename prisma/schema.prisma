@@ -1,0 +1,123 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ChatSession {
+  id                  String                @id @db.VarChar(128)
+  version             Int                   @default(0)
+  salesPhase          String                @default("discover") @map("sales_phase") @db.VarChar(32)
+  activeQuestionField String?               @map("active_question_field") @db.VarChar(64)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  lead                Lead?
+  messages            ConversationMessage[]
+
+  @@map("chat_sessions")
+}
+
+model Lead {
+  id                     String              @id @default(uuid()) @db.Uuid
+  sessionId              String              @unique @map("session_id") @db.VarChar(128)
+  status                 String              @default("new") @db.VarChar(32)
+  projectType            String?             @map("project_type") @db.VarChar(32)
+  businessGoal           String?             @map("business_goal") @db.Text
+  usersAndRoles          String[]            @default([]) @map("users_and_roles")
+  requestedFeatures      String[]            @default([]) @map("requested_features")
+  currentSystem          String?             @map("current_system") @db.Text
+  currentSystemProblems  String[]            @default([]) @map("current_system_problems")
+  integrations           String[]            @default([])
+  dataSources            String[]            @default([]) @map("data_sources")
+  stackPreference        String[]            @default([]) @map("stack_preference")
+  budgetText             String?             @map("budget_text") @db.Text
+  budgetMin              Decimal?            @map("budget_min") @db.Decimal(14, 2)
+  budgetMax              Decimal?            @map("budget_max") @db.Decimal(14, 2)
+  budgetCurrency         String?             @map("budget_currency") @db.VarChar(8)
+  timelineText           String?             @map("timeline_text") @db.Text
+  contactName            String?             @map("contact_name") @db.VarChar(160)
+  contactEmail           String?             @map("contact_email") @db.VarChar(320)
+  contactCompany         String?             @map("contact_company") @db.VarChar(200)
+  contactPhone           String?             @map("contact_phone") @db.VarChar(64)
+  consentToSubmit        Boolean             @default(false) @map("consent_to_submit")
+  consentAt              DateTime?           @map("consent_at")
+  answeredFields         String[]            @default([]) @map("answered_fields")
+  lastConfirmedSummary   String?             @map("last_confirmed_summary") @db.Text
+  fieldChanges           Json                @default("[]") @map("field_changes")
+  submissionAttemptCount Int                 @default(0) @map("submission_attempt_count")
+  leadReference          String?             @unique @map("lead_reference") @db.VarChar(80)
+  submissionError        String?             @map("submission_error") @db.Text
+  submittedAt            DateTime?           @map("submitted_at")
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+  session                ChatSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  submissionAttempts     SubmissionAttempt[]
+
+  @@index([status])
+  @@map("leads")
+}
+
+model ConversationMessage {
+  id        String      @id @default(uuid()) @db.Uuid
+  sessionId String      @map("session_id") @db.VarChar(128)
+  sequence  Int
+  role      String      @db.VarChar(16)
+  content   String      @db.Text
+  createdAt DateTime    @default(now()) @map("created_at")
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, createdAt])
+  @@map("conversation_messages")
+}
+
+model SubmissionAttempt {
+  id                String              @id @default(uuid()) @db.Uuid
+  leadId            String              @map("lead_id") @db.Uuid
+  idempotencyKey    String              @unique @map("idempotency_key") @db.VarChar(160)
+  leadReference     String              @map("lead_reference") @db.VarChar(80)
+  status            String              @default("pending") @db.VarChar(32)
+  deliveryAttempts  Int                 @default(0) @map("delivery_attempts")
+  providerMessageId String?             @map("provider_message_id") @db.VarChar(240)
+  lastErrorCode     String?             @map("last_error_code") @db.VarChar(80)
+  lastError         String?             @map("last_error") @db.Text
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  completedAt       DateTime?           @map("completed_at")
+  lead              Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  outbox            NotificationOutbox?
+
+  @@index([leadId, createdAt])
+  @@map("submission_attempts")
+}
+
+model NotificationOutbox {
+  id                  String            @id @default(uuid()) @db.Uuid
+  submissionAttemptId String            @unique @map("submission_attempt_id") @db.Uuid
+  idempotencyKey      String            @unique @map("idempotency_key") @db.VarChar(160)
+  eventType           String            @default("lead.quote_requested") @map("event_type") @db.VarChar(80)
+  status              String            @default("pending") @db.VarChar(32)
+  payload             Json
+  attempts            Int               @default(0)
+  maxAttempts         Int               @default(5) @map("max_attempts")
+  nextAttemptAt       DateTime          @default(now()) @map("next_attempt_at")
+  leaseOwner          String?           @map("lease_owner") @db.VarChar(160)
+  leaseExpiresAt      DateTime?         @map("lease_expires_at")
+  providerMessageId   String?           @map("provider_message_id") @db.VarChar(240)
+  lastErrorCode       String?           @map("last_error_code") @db.VarChar(80)
+  lastError           String?           @map("last_error") @db.Text
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  deliveredAt         DateTime?         @map("delivered_at")
+  submissionAttempt   SubmissionAttempt @relation(fields: [submissionAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@map("notification_outbox")
+}
